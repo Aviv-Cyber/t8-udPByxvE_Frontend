@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>VaultDB — Liquid Sphere Lock</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    * {
+      -webkit-tap-highlight-color: transparent;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      min-height: 100dvh;
+      overflow-x: hidden;
+      background-color: #050507;
+      color: #F4F4F5;
+      font-family: 'Inter', system-ui, sans-serif;
+    }
+
+    /* Prevent iOS Safari zoom on input focus */
+    input {
+      font-size: 16px !important;
+    }
+
+    /* Radial ambient halo behind the sphere */
+    .sphere-ambient-halo {
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.14) 0%, rgba(161, 161, 170, 0.05) 45%, transparent 72%);
+    }
+
+    /* Apple iOS 26 Liquid Glass Pill */
+    .glass-sphere-form {
+      background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.22) 0%,
+        rgba(255, 255, 255, 0.07) 52%,
+        rgba(255, 255, 255, 0.14) 100%
+      );
+      border: 1px solid rgba(255, 255, 255, 0.44);
+      backdrop-filter: blur(22px) saturate(195%) contrast(108%);
+      -webkit-backdrop-filter: blur(22px) saturate(195%) contrast(108%);
+      box-shadow:
+        inset 0 1.5px 2px rgba(255, 255, 255, 0.72),
+        inset 0 -1px 2px rgba(255, 255, 255, 0.16),
+        0 14px 34px rgba(0, 0, 0, 0.42);
+      transition:
+        opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+        transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+        border-color 0.3s ease,
+        box-shadow 0.3s ease;
+    }
+
+    .glass-sphere-form.pill-hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, -10px) scale(0.94);
+    }
+
+    .glass-sphere-form.pill-visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translate(-50%, 0px) scale(1);
+    }
+
+    .glass-sphere-form.pill-shake {
+      animation: pillShake 0.44s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+      border-color: rgba(248, 113, 113, 0.75);
+    }
+
+    @keyframes pillShake {
+      0%, 100% { transform: translate(-50%, 0px); }
+      20% { transform: translate(calc(-50% - 7px), 0px); }
+      40% { transform: translate(calc(-50% + 7px), 0px); }
+      60% { transform: translate(calc(-50% - 4px), 0px); }
+      80% { transform: translate(calc(-50% + 4px), 0px); }
+    }
+
+    .glass-sphere-input {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      color: #FFFFFF;
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .glass-sphere-input::placeholder {
+      color: rgba(255, 255, 255, 0.48);
+    }
+
+    .glass-sphere-input:focus {
+      outline: none;
+      background: rgba(255, 255, 255, 0.14);
+      border-color: rgba(255, 255, 255, 0.55);
+    }
+
+    .glass-submit-btn {
+      background: rgba(255, 255, 255, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.38);
+      box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.65);
+      transition: transform 0.15s ease, background-color 0.2s ease;
+    }
+
+    .glass-submit-btn:hover {
+      background: rgba(255, 255, 255, 0.32);
+    }
+
+    .glass-submit-btn:active {
+      transform: scale(0.92);
+    }
+
+    /* Subtle custom scrollbar for unlocked items */
+    ::-webkit-scrollbar {
+      width: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(113, 113, 122, 0.35);
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body id="app-canvas" class="min-h-dvh flex flex-col bg-[#050507] text-zinc-100 transition-colors duration-700 selection:bg-white/20">
+
+  <!-- Full-viewport dim backdrop for dormant state -->
+  <div id="dormant-backdrop" class="fixed inset-0 bg-black/55 backdrop-blur-[2px] pointer-events-none transition-opacity duration-700 z-0"></div>
+
+  <!-- LOCK SCREEN: Spatial Minimalist Centered Anchor -->
+  <main id="vault-lock-screen" class="relative z-10 flex-1 w-full max-w-5xl mx-auto px-4 sm:px-6 flex flex-col items-center justify-center">
+    <div id="sphere-anchor" class="relative flex items-center justify-center select-none touch-none" style="width: min(72vw, 220px); aspect-ratio: 1;">
+      
+      <!-- Subtle radial ambient halo -->
+      <div id="sphere-halo" class="sphere-ambient-halo absolute -inset-12 rounded-full blur-2xl pointer-events-none transition-all duration-700"></div>
+
+      <!-- Oversized Burst & Shockwave Canvas Overlay (never clips) -->
+      <canvas id="burstCanvas" class="pointer-events-none z-20" style="position: absolute; inset: -45%; width: 190%; height: 190%;"></canvas>
+
+      <!-- Main Interactive 3D-Shaded Liquid Sphere Canvas -->
+      <canvas id="liquidSphere" class="relative z-30 w-full h-full rounded-full cursor-grab active:cursor-grabbing"></canvas>
+
+      <!-- Liquid Glass Password Input Pill -->
+      <form id="glass-sphere-form" class="glass-sphere-form pill-hidden absolute top-full mt-6 left-1/2 w-full max-w-xs flex items-center gap-2 rounded-full p-1.5 z-40" autocomplete="off">
+        <input
+          type="password"
+          id="glass-sphere-input"
+          dir="ltr"
+          required
+          placeholder="••••••••"
+          aria-label="Vault Password"
+          class="glass-sphere-input flex-1 min-w-0 rounded-full px-4 py-2 text-xs font-mono tracking-wider"
+        />
+        <button
+          type="submit"
+          id="glass-submit-btn"
+          aria-label="Unlock Vault"
+          class="glass-submit-btn w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0"
+        >
+          <svg class="w-4 h-4 rotate-180" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+          </svg>
+        </button>
+      </form>
+    </div>
+  </main>
+
+  <!-- UNLOCKED APP SCREEN -->
+  <section id="unlocked-app-screen" class="hidden relative z-10 flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12 flex flex-col justify-center">
+    <div class="bg-[#0F0F0F] border border-zinc-800/80 rounded-3xl p-5 sm:p-8 shadow-2xl space-y-6">
+      
+      <!-- Top Bar with Mini Status Indicator -->
+      <div class="flex items-center justify-between border-b border-zinc-800/80 pb-4">
+        <div class="flex items-center gap-3">
+          <span id="status-orb-dot" class="w-3 h-3 rounded-full bg-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.8)] transition-colors duration-500"></span>
+          <div>
+            <h1 class="text-base sm:text-lg font-semibold tracking-tight text-zinc-100">VaultDB</h1>
+            <p class="text-xs text-zinc-400">חיבור מוצפן ל-data.json</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          id="lock-btn"
+          class="px-4 py-2 rounded-full bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-medium text-zinc-300 transition-colors"
+        >
+          נעל כספת
+        </button>
+      </div>
+
+      <!-- Add Record Form -->
+      <form id="entry-form" class="flex items-center gap-2.5">
+        <input
+          type="text"
+          id="entry-input"
+          required
+          placeholder="הזן רשומה חדשה לשמירה..."
+          class="flex-1 bg-zinc-900 border border-zinc-800/90 focus:border-zinc-600 rounded-full px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none transition-colors"
+        />
+        <button
+          type="submit"
+          id="save-btn"
+          class="px-5 py-2.5 rounded-full bg-zinc-100 hover:bg-white text-zinc-950 text-xs sm:text-sm font-medium shrink-0 transition-all active:scale-95"
+        >
+          שמור
+        </button>
+      </form>
+
+      <!-- Sync Status & Count -->
+      <div class="flex items-center justify-between text-xs text-zinc-400 px-1">
+        <span id="status-msg">מוכן</span>
+        <span id="records-count" dir="ltr" class="font-mono text-zinc-500">0 items</span>
+      </div>
+
+      <!-- Items List -->
+      <ul id="items-list" class="space-y-2.5 max-h-[52dvh] overflow-y-auto pr-0.5"></ul>
+    </div>
+  </section>
+
+  <script>
+    /**
+     * ============================================================================
+     * 1. ZERO-KNOWLEDGE VAULTDB CRYPTO & WORKER CLIENT
+     * ============================================================================
+     */
+    const SALTED_VAULT = {"salt":"PLACEHOLDER","iv":"PLACEHOLDER","cipher":"PLACEHOLDER"};
+    let currentItems = [];
+
+    const VaultDB = {
+      endpoint: null,
+      queue: Promise.resolve(),
+      timer: null,
+      latestItems: null,
+      pendingResolvers: [],
+
+      async unlock(password) {
+        if (!password) throw new Error('Empty password');
+        // Demo fallback if SALTED_VAULT still holds build-time PLACEHOLDER tokens
+        if (SALTED_VAULT.salt === 'PLACEHOLDER') {
+          await new Promise((r) => setTimeout(r, 650));
+          if (password === 'wrong' || password === '0000') {
+            throw new Error('Invalid password');
+          }
+          this.endpoint = 'demo://local-vault';
+          return this.read();
+        }
+
+        const b64 = (str) => Uint8Array.from(atob(str), (c) => c.charCodeAt(0));
+        const keyMaterial = await crypto.subtle.importKey(
+          'raw',
+          new TextEncoder().encode(password),
+          'PBKDF2',
+          false,
+          ['deriveKey']
+        );
+        const aesKey = await crypto.subtle.deriveKey(
+          { name: 'PBKDF2', salt: b64(SALTED_VAULT.salt), iterations: 100000, hash: 'SHA-256' },
+          keyMaterial,
+          { name: 'AES-GCM', length: 256 },
+          false,
+          ['decrypt']
+        );
+        const decryptedBuffer = await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv: b64(SALTED_VAULT.iv) },
+          aesKey,
+          b64(SALTED_VAULT.cipher)
+        );
+        this.endpoint = new TextDecoder().decode(decryptedBuffer);
+        return this.read();
+      },
+
+      async read() {
+        if (this.endpoint === 'demo://local-vault') {
+          const cached = localStorage.getItem('vaultdb_demo_items');
+          return cached ? JSON.parse(cached) : [
+            { id: 1732387200000, text: 'מפתח הצפנה פעיל — מחובר ל-Worker', createdAt: new Date().toISOString() }
+          ];
+        }
+        const res = await fetch(this.endpoint);
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+      },
+
+      save(items, delay = 1500) {
+        this.latestItems = items;
+        return new Promise((resolve, reject) => {
+          this.pendingResolvers.push({ resolve, reject });
+          clearTimeout(this.timer);
+          this.timer = setTimeout(() => {
+            const snapshot = this.latestItems;
+            const batch = this.pendingResolvers.splice(0);
+
+            if (this.endpoint === 'demo://local-vault') {
+              try {
+                localStorage.setItem('vaultdb_demo_items', JSON.stringify(snapshot));
+                batch.forEach((p) => p.resolve({ ok: true }));
+              } catch (err) {
+                batch.forEach((p) => p.reject(err));
+              }
+              return;
+            }
+
+            this.queue = this.queue
+              .then(() =>
+                fetch(this.endpoint, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(snapshot, null, 2)
+                })
+              )
+              .then((res) => {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                batch.forEach((p) => p.resolve(res));
+              })
+              .catch((err) => {
+                batch.forEach((p) => p.reject(err));
+              });
+          }, delay);
+        });
+      },
+
+      lock() {
+        clearTimeout(this.timer);
+        this.timer = null;
+        this.latestItems = null;
+        this.endpoint = null;
+      }
+    };
+
+    /**
+     * ============================================================================
+     * 2. LIQUID SPHERE SHADER ENGINE & PHYSICS CHOREOGRAPHY
+     * ============================================================================
+     */
+    const PALETTES = {
+      initial: {
+        colors: ['#18181B', '#3F3F46', '#71717A', '#A1A1AA', '#E4E4E7'],
+        glow: 'rgba(255, 255, 255, 0.22)'
+      },
+      awake: {
+        colors: ['#BA92EC', '#9FE7E5', '#F0C4D9', '#BDCFF3', '#FFFFFF'],
+        glow: 'rgba(186, 146, 236, 0.42)'
+      },
+      ready: {
+        colors: ['#0F172A', '#1D4ED8', '#0284C7', '#38BDF8', '#E0F2FE'],
+        glow: 'rgba(56, 189, 248, 0.45)'
+      },
+      building: {
+        colors: ['#7C2D12', '#C2410C', '#EA580C', '#FB923C', '#FED7AA'],
+        glow: 'rgba(251, 146, 60, 0.55)'
+      },
+      success: {
+        colors: ['#064E3B', '#059669', '#10B981', '#34D399', '#A7F3D0'],
+        glow: 'rgba(52, 211, 153, 0.55)'
+      },
+      error: {
+        colors: ['#7F1D1D', '#B91C1C', '#EF4444', '#F87171', '#FCA5A5'],
+        glow: 'rgba(239, 68, 68, 0.55)'
+      }
+    };
+
+    function hexToRgb(hex) {
+      const clean = hex.replace('#', '');
+      const num = parseInt(clean, 16);
+      return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+    }
+
+    // Pre-compute 5 Fibonacci sphere unit vectors for uniform palette distribution
+    const FIB_DIRS = (() => {
+      const dirs = [];
+      const count = 5;
+      const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+      for (let i = 0; i < count; i++) {
+        const y = 1 - (i / (count - 1)) * 2;
+        const radius = Math.sqrt(Math.max(0, 1 - y * y));
+        const theta = goldenAngle * i;
+        dirs.push([Math.cos(theta) * radius, y, Math.sin(theta) * radius]);
+      }
+      return dirs;
+    })();
+
+    // Fast smooth 3D trigonometric fBm (3 octaves)
+    function fbm3(x, y, z, t) {
+      let val = 0;
+      let amp = 0.55;
+      let freq = 1.65;
+      for (let i = 0; i < 3; i++) {
+        const nx = x * freq + t * (0.7 + i * 0.25);
+        const ny = y * freq - t * (0.55 - i * 0.2);
+        const nz = z * freq + t * (0.45 + i * 0.15);
+        val += amp * (Math.sin(nx + Math.cos(ny * 1.3 + nz)) * Math.cos(ny + Math.sin(nz * 1.2 + nx)));
+        freq *= 2.05;
+        amp *= 0.5;
+      }
+      return val;
+    }
+
+    class LiquidSphereController {
+      constructor() {
+        this.anchor = document.getElementById('sphere-anchor');
+        this.canvas = document.getElementById('liquidSphere');
+        this.ctx = this.canvas.getContext('2d', { alpha: true });
+        this.burstCanvas = document.getElementById('burstCanvas');
+        this.burstCtx = this.burstCanvas.getContext('2d', { alpha: true });
+        this.halo = document.getElementById('sphere-halo');
+
+        // Offscreen shader buffer
+        this.offCanvas = document.createElement('canvas');
+        this.offCtx = this.offCanvas.getContext('2d', { willReadFrequently: false });
+        this.bufferR = 136;
+        this.offCanvas.width = this.bufferR * 2;
+        this.offCanvas.height = this.bufferR * 2;
+        this.imgData = this.offCtx.createImageData(this.bufferR * 2, this.bufferR * 2);
+
+        // State & smooth palette interpolation
+        this.state = 'initial';
+        this.currentRgb = PALETTES.initial.colors.map(hexToRgb);
+        this.targetRgb = PALETTES.initial.colors.map(hexToRgb);
+
+        // Physics, rotation & spring parameters
+        this.yaw = 0.35;
+        this.pitch = -0.18;
+        this.velYaw = 0.004;
+        this.velPitch = 0.0;
+        this.colorChangeSpinBoost = 0;
+
+        // Breathing & spring squish
+        this.breathPhase = 0;
+        this.breathRate = 1.35;
+        this.breathAmp = 0.036;
+        this.springScale = 1.0;
+        this.springVel = 0.0;
+        this.targetPressScale = 1.0;
+        this.burstPopImpulse = 0.0;
+
+        // Spawn & awaken rebirth choreography
+        this.spawnStart = performance.now();
+        this.rebirthPhase = 'none'; // 'none' | 'imploding' | 'spawning'
+        this.rebirthScale = 1.0;
+
+        // Pointer drag tracking
+        this.isDragging = false;
+        this.dragStartX = 0;
+        this.dragStartY = 0;
+        this.lastPointerX = 0;
+        this.lastPointerY = 0;
+        this.dragDistance = 0;
+
+        // Success particles & shockwaves
+        this.particles = [];
+        this.shockwaves = [];
+
+        this.lastTime = performance.now();
+        this.bindEvents();
+        this.resize();
+        this.applyGlow('initial');
+      }
+
+      resize() {
+        const rect = this.anchor.getBoundingClientRect();
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const cssSize = Math.max(120, Math.round(rect.width));
+
+        this.canvas.width = Math.round(cssSize * dpr);
+        this.canvas.height = Math.round(cssSize * dpr);
+
+        const burstSize = Math.round(cssSize * 1.9);
+        this.burstCanvas.width = Math.round(burstSize * dpr);
+        this.burstCanvas.height = Math.round(burstSize * dpr);
+
+        const nextR = Math.max(96, Math.min(180, Math.round(cssSize * 0.65)));
+        if (nextR !== this.bufferR) {
+          this.bufferR = nextR;
+          this.offCanvas.width = nextR * 2;
+          this.offCanvas.height = nextR * 2;
+          this.imgData = this.offCtx.createImageData(nextR * 2, nextR * 2);
+        }
+      }
+
+      applyGlow(stateName) {
+        const pal = PALETTES[stateName] || PALETTES.initial;
+        this.canvas.style.filter = `drop-shadow(0 18px 36px ${pal.glow})`;
+      }
+
+      setState(nextState) {
+        if (this.state === nextState) return;
+        this.state = nextState;
+        const pal = PALETTES[nextState] || PALETTES.initial;
+        this.targetRgb = pal.colors.map(hexToRgb);
+        this.colorChangeSpinBoost = 4.5;
+        this.applyGlow(nextState);
+
+        if (nextState === 'building') {
+          this.breathRate = 2.85;
+          this.breathAmp = 0.13;
+        } else {
+          this.breathRate = 1.35;
+          this.breathAmp = 0.036;
+        }
+
+        if (nextState === 'success') {
+          this.burstPopImpulse = 0.22;
+          this.triggerSuccessBurst(pal.colors);
+        }
+      }
+
+      triggerAwakenRebirth(onMidpoint) {
+        if (this.rebirthPhase !== 'none') return;
+        this.rebirthPhase = 'imploding';
+        this.onRebirthMidpoint = onMidpoint;
+      }
+
+      triggerSuccessBurst(paletteHex) {
+        const w = this.burstCanvas.width;
+        const h = this.burstCanvas.height;
+        const cx = w / 2;
+        const cy = h / 2;
+        const baseRadius = (this.canvas.width / 2) * 0.92;
+
+        this.shockwaves.push(
+          { x: cx, y: cy, r: baseRadius * 0.85, maxR: baseRadius * 1.85, alpha: 0.85, speed: 6.5, width: 3.5 },
+          { x: cx, y: cy, r: baseRadius * 0.72, maxR: baseRadius * 1.65, alpha: 0.65, speed: 4.8, width: 2.0 }
+        );
+
+        for (let i = 0; i < 42; i++) {
+          const angle = (Math.PI * 2 * i) / 42 + (Math.random() - 0.5) * 0.25;
+          const speed = 2.2 + Math.random() * 5.2;
+          const color = paletteHex[i % paletteHex.length];
+          this.particles.push({
+            x: cx + Math.cos(angle) * baseRadius * 0.88,
+            y: cy + Math.sin(angle) * baseRadius * 0.88,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            size: 2.2 + Math.random() * 3.4,
+            alpha: 1,
+            decay: 0.016 + Math.random() * 0.014,
+            color
+          });
+        }
+      }
+
+      bindEvents() {
+        window.addEventListener('resize', () => this.resize());
+
+        const onPointerDown = (e) => {
+          this.isDragging = true;
+          this.dragDistance = 0;
+          this.dragStartX = e.clientX;
+          this.dragStartY = e.clientY;
+          this.lastPointerX = e.clientX;
+          this.lastPointerY = e.clientY;
+          this.targetPressScale = 0.95;
+          if (this.canvas.setPointerCapture) {
+            try { this.canvas.setPointerCapture(e.pointerId); } catch (_) {}
+          }
+        };
+
+        const onPointerMove = (e) => {
+          if (!this.isDragging) return;
+          const dx = e.clientX - this.lastPointerX;
+          const dy = e.clientY - this.lastPointerY;
+          this.dragDistance = Math.hypot(e.clientX - this.dragStartX, e.clientY - this.dragStartY);
+
+          const sensitivity = 0.0085;
+          this.yaw += dx * sensitivity;
+          this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch + dy * sensitivity));
+          this.velYaw = dx * sensitivity * 0.65;
+          this.velPitch = dy * sensitivity * 0.65;
+
+          this.lastPointerX = e.clientX;
+          this.lastPointerY = e.clientY;
+        };
+
+        const onPointerUp = (e) => {
+          if (!this.isDragging) return;
+          this.isDragging = false;
+          this.targetPressScale = 1.0;
+
+          if (this.dragDistance <= 5) {
+            this.handleTap();
+          }
+        };
+
+        this.canvas.addEventListener('pointerdown', onPointerDown);
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onPointerUp);
+      }
+
+      handleTap() {
+        if (this.state === 'initial') {
+          this.triggerAwakenRebirth(() => {
+            this.setState('awake');
+            revealPasswordPill();
+          });
+        } else if (this.state === 'awake' || this.state === 'error') {
+          const input = document.getElementById('glass-sphere-input');
+          if (input.value.trim().length > 0) {
+            document.getElementById('glass-sphere-form').requestSubmit();
+          } else {
+            this.colorChangeSpinBoost = Math.max(this.colorChangeSpinBoost, 2.6);
+            input.focus();
+          }
+        }
+      }
+
+      updatePhysics(dt, now) {
+        // 1. Intro Spawn ease-out cubic (450ms)
+        const spawnElapsed = Math.min(1, (now - this.spawnStart) / 450);
+        const introEase = 0.08 + 0.92 * (1 - Math.pow(1 - spawnElapsed, 3));
+
+        // 2. Awaken Rebirth choreography
+        if (this.rebirthPhase === 'imploding') {
+          this.rebirthScale += (0.58 - this.rebirthScale) * Math.min(1, dt * 16);
+          this.yaw += dt * 7.5;
+          if (this.rebirthScale <= 0.61) {
+            this.rebirthPhase = 'spawning';
+            if (typeof this.onRebirthMidpoint === 'function') {
+              this.onRebirthMidpoint();
+              this.onRebirthMidpoint = null;
+            }
+          }
+        } else if (this.rebirthPhase === 'spawning') {
+          this.rebirthScale += (1.0 - this.rebirthScale) * Math.min(1, dt * 11);
+          if (Math.abs(1.0 - this.rebirthScale) < 0.005) {
+            this.rebirthScale = 1.0;
+            this.rebirthPhase = 'none';
+          }
+        }
+
+        // 3. Smooth color interpolation toward target state palette
+        const lerpFactor = Math.min(1, dt * 6.5);
+        for (let i = 0; i < 5; i++) {
+          for (let c = 0; c < 3; c++) {
+            this.currentRgb[i][c] += (this.targetRgb[i][c] - this.currentRgb[i][c]) * lerpFactor;
+          }
+        }
+
+        // 4. Dual-harmonic breathing
+        this.breathPhase += dt * this.breathRate;
+        const breathWave = Math.sin(this.breathPhase) + 0.25 * Math.sin(2 * this.breathPhase - 0.8);
+        const breathScale = 1 + breathWave * this.breathAmp;
+
+        // 5. Underdamped spring squish (stiffness 0.02, damping 0.86 per step)
+        const targetS = this.targetPressScale + this.burstPopImpulse;
+        this.burstPopImpulse *= 0.82;
+        const force = (targetS - this.springScale) * 0.02 * 60 * dt;
+        this.springVel = (this.springVel + force) * Math.pow(0.86, dt * 60);
+        this.springScale += this.springVel;
+
+        // 6. Rotation & momentum inertia
+        const stateSpinMult = this.state === 'building' ? 2.2 : 1.0;
+        if (!this.isDragging) {
+          this.yaw += (0.32 * stateSpinMult + this.colorChangeSpinBoost) * dt + this.velYaw;
+          this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch + this.velPitch));
+          this.velYaw *= Math.pow(0.94, dt * 60);
+          this.velPitch *= Math.pow(0.94, dt * 60);
+        }
+        this.colorChangeSpinBoost *= Math.pow(0.92, dt * 60);
+
+        return introEase * this.rebirthScale * breathScale * this.springScale;
+      }
+
+      renderShader(timeSec) {
+        const R = this.bufferR;
+        const size = R * 2;
+        const data = this.imgData.data;
+
+        // Precompute rotation trig
+        const cy = Math.cos(this.yaw);
+        const sy = Math.sin(this.yaw);
+        const cp = Math.cos(this.pitch);
+        const sp = Math.sin(this.pitch);
+
+        // Organic drifting key light around baseL = [-0.45, -0.65, 0.72]
+        const lxRaw = -0.45 + Math.sin(timeSec * 0.65) * 0.14;
+        const lyRaw = -0.65 + Math.cos(timeSec * 0.52) * 0.12;
+        const lzRaw = 0.72;
+        const lLen = Math.hypot(lxRaw, lyRaw, lzRaw);
+        const lx = lxRaw / lLen;
+        const ly = lyRaw / lLen;
+        const lz = lzRaw / lLen;
+
+        const c0 = this.currentRgb[0];
+        const c1 = this.currentRgb[1];
+        const c2 = this.currentRgb[2];
+        const c3 = this.currentRgb[3];
+        const c4 = this.currentRgb[4];
+
+        const d0 = FIB_DIRS[0], d1 = FIB_DIRS[1], d2 = FIB_DIRS[2], d3 = FIB_DIRS[3], d4 = FIB_DIRS[4];
+        const invR = 1 / R;
+        const swirl = 0.65;
+
+        let ptr = 0;
+        for (let py = 0; py < size; py++) {
+          const ny = (py + 0.5) * invR - 1;
+          const ny2 = ny * ny;
+
+          for (let px = 0; px < size; px++) {
+            const nx = (px + 0.5) * invR - 1;
+            const r2 = nx * nx + ny2;
+
+            if (r2 > 1.0) {
+              data[ptr + 3] = 0;
+              ptr += 4;
+              continue;
+            }
+
+            const nz = Math.sqrt(Math.max(0, 1.0 - r2));
+
+            // Edge anti-aliasing
+            const distFromEdge = 1.0 - Math.sqrt(r2);
+            const alpha = distFromEdge < 0.025 ? Math.round((distFromEdge / 0.025) * 255) : 255;
+
+            // Rotate normal by pitch (X) then yaw (Y)
+            const y1 = ny * cp - nz * sp;
+            const z1 = ny * sp + nz * cp;
+            const rx = nx * cy + z1 * sy;
+            const ry = y1;
+            const rz = -nx * sy + z1 * cy;
+
+            // Domain-warped fBm liquid currents
+            const f1 = fbm3(rx, ry, rz, timeSec * 0.85);
+            const f2 = fbm3(ry + 1.7, rz - 1.3, rx + 0.9, timeSec * 0.75);
+
+            const wx = rx + swirl * f1;
+            const wy = ry + swirl * f2;
+            const wz = rz + swirl * (f1 - f2) * 0.7;
+            const wLen = Math.hypot(wx, wy, wz) || 1;
+            const ux = wx / wLen;
+            const uy = wy / wLen;
+            const uz = wz / wLen;
+
+            // Softmax exponential color weights across Fibonacci sphere directions
+            const w0 = Math.exp((ux * d0[0] + uy * d0[1] + uz * d0[2]) * 2.8);
+            const w1 = Math.exp((ux * d1[0] + uy * d1[1] + uz * d1[2]) * 2.8);
+            const w2 = Math.exp((ux * d2[0] + uy * d2[1] + uz * d2[2]) * 2.8);
+            const w3 = Math.exp((ux * d3[0] + uy * d3[1] + uz * d3[2]) * 2.8);
+            const w4 = Math.exp((ux * d4[0] + uy * d4[1] + uz * d4[2]) * 2.8);
+            const wSum = w0 + w1 + w2 + w3 + w4;
+
+            let r = (c0[0] * w0 + c1[0] * w1 + c2[0] * w2 + c3[0] * w3 + c4[0] * w4) / wSum;
+            let g = (c0[1] * w0 + c1[1] * w1 + c2[1] * w2 + c3[1] * w3 + c4[1] * w4) / wSum;
+            let b = (c0[2] * w0 + c1[2] * w1 + c2[2] * w2 + c3[2] * w3 + c4[2] * w4) / wSum;
+
+            // Perturb surface normal slightly with fluid ripples for glossy micro-refraction
+            const snx = nx + f1 * 0.08;
+            const sny = ny + f2 * 0.08;
+            const snz = nz;
+            const snLen = Math.hypot(snx, sny, snz) || 1;
+            const nnx = snx / snLen;
+            const nny = sny / snLen;
+            const nnz = snz / snLen;
+
+            // Lambertian diffuse lighting
+            const ndl = Math.max(0, nnx * lx + nny * ly + nnz * lz);
+            const diffuse = 0.34 + 0.72 * ndl;
+
+            // Specular reflection along view vector [0, 0, 1]
+            const reflZ = 2 * ndl * nnz - lz;
+            const spec = reflZ > 0 ? Math.pow(reflZ, 26) * 0.85 * 255 : 0;
+
+            // Fresnel rim glow
+            const fresnel = Math.pow(1 - nz, 2.6) * 0.25 * 255;
+
+            r = Math.min(255, r * diffuse + spec + fresnel);
+            g = Math.min(255, g * diffuse + spec + fresnel);
+            b = Math.min(255, b * diffuse + spec + fresnel);
+
+            data[ptr] = r;
+            data[ptr + 1] = g;
+            data[ptr + 2] = b;
+            data[ptr + 3] = alpha;
+            ptr += 4;
+          }
+        }
+
+        this.offCtx.putImageData(this.imgData, 0, 0);
+      }
+
+      renderBursts() {
+        const bCtx = this.burstCtx;
+        const bw = this.burstCanvas.width;
+        const bh = this.burstCanvas.height;
+        bCtx.clearRect(0, 0, bw, bh);
+
+        if (this.shockwaves.length === 0 && this.particles.length === 0) return;
+
+        bCtx.save();
+        bCtx.globalCompositeOperation = 'lighter';
+
+        // Expanding additive shockwave rings
+        for (let i = this.shockwaves.length - 1; i >= 0; i--) {
+          const sw = this.shockwaves[i];
+          sw.r += sw.speed;
+          sw.alpha *= 0.93;
+          if (sw.r >= sw.maxR || sw.alpha <= 0.02) {
+            this.shockwaves.splice(i, 1);
+            continue;
+          }
+          bCtx.beginPath();
+          bCtx.arc(sw.x, sw.y, sw.r, 0, Math.PI * 2);
+          bCtx.strokeStyle = `rgba(167, 243, 208, ${sw.alpha})`;
+          bCtx.lineWidth = sw.width;
+          bCtx.stroke();
+        }
+
+        // Radial glowing particles
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+          const p = this.particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vx *= 0.96;
+          p.vy *= 0.96;
+          p.alpha -= p.decay;
+          if (p.alpha <= 0) {
+            this.particles.splice(i, 1);
+            continue;
+          }
+          bCtx.globalAlpha = Math.max(0, p.alpha);
+          bCtx.fillStyle = p.color;
+          bCtx.beginPath();
+          bCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          bCtx.fill();
+        }
+
+        bCtx.restore();
+      }
+
+      tick(now) {
+        const dt = Math.min(0.05, (now - this.lastTime) / 1000);
+        this.lastTime = now;
+
+        const totalScale = this.updatePhysics(dt, now);
+        this.renderShader(now * 0.001);
+
+        // Composite upscaled offscreen sphere onto DPR main canvas with totalScale
+        const cw = this.canvas.width;
+        const ch = this.canvas.height;
+        this.ctx.clearRect(0, 0, cw, ch);
+        this.ctx.save();
+        this.ctx.translate(cw / 2, ch / 2);
+        this.ctx.scale(totalScale, totalScale);
+        this.ctx.imageSmoothingEnabled = true;
+        this.ctx.imageSmoothingQuality = 'high';
+        this.ctx.drawImage(this.offCanvas, -cw / 2, -ch / 2, cw, ch);
+        this.ctx.restore();
+
+        this.renderBursts();
+        requestAnimationFrame((t) => this.tick(t));
+      }
+
+      start() {
+        requestAnimationFrame((t) => this.tick(t));
+      }
+    }
+
+    /**
+     * ============================================================================
+     * 3. UI CHOREOGRAPHY & VAULTDB EVENT WIRING
+     * ============================================================================
+     */
+    let sphere;
+
+    function revealPasswordPill() {
+      const form = document.getElementById('glass-sphere-form');
+      const input = document.getElementById('glass-sphere-input');
+      const body = document.getElementById('app-canvas');
+      const backdrop = document.getElementById('dormant-backdrop');
+
+      body.classList.remove('bg-[#050507]');
+      body.classList.add('bg-[#0F0F0F]');
+      backdrop.classList.add('opacity-0');
+
+      form.classList.remove('pill-hidden');
+      form.classList.add('pill-visible');
+      setTimeout(() => input.focus(), 180);
+    }
+
+    function resetToDormantLock() {
+      const form = document.getElementById('glass-sphere-form');
+      const input = document.getElementById('glass-sphere-input');
+      const body = document.getElementById('app-canvas');
+      const backdrop = document.getElementById('dormant-backdrop');
+
+      input.value = '';
+      form.classList.remove('pill-visible', 'pill-shake');
+      form.classList.add('pill-hidden');
+
+      body.classList.remove('bg-[#0F0F0F]');
+      body.classList.add('bg-[#050507]');
+      backdrop.classList.remove('opacity-0');
+
+      document.getElementById('unlocked-app-screen').classList.add('hidden');
+      document.getElementById('vault-lock-screen').classList.remove('hidden');
+
+      sphere.resize();
+      sphere.setState('initial');
+    }
+
+    function formatTimestamp(iso) {
+      if (!iso) return '';
+      try {
+        const d = new Date(iso);
+        return d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+      } catch {
+        return '';
+      }
+    }
+
+    function renderItems() {
+      const list = document.getElementById('items-list');
+      const countEl = document.getElementById('records-count');
+      list.innerHTML = '';
+      countEl.textContent = `${currentItems.length} ${currentItems.length === 1 ? 'item' : 'items'}`;
+
+      if (currentItems.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'py-8 text-center text-xs text-zinc-500';
+        empty.textContent = 'הכספת ריקה. הוסף רשומה ראשונה למעלה.';
+        list.appendChild(empty);
+        return;
+      }
+
+      [...currentItems].reverse().forEach((item) => {
+        const li = document.createElement('li');
+        li.className = 'px-4 py-3 rounded-2xl bg-zinc-900 border border-zinc-800/80 text-xs sm:text-sm text-zinc-200 flex items-center justify-between gap-3 transition-colors hover:border-zinc-700/80';
+
+        const textSpan = document.createElement('span');
+        textSpan.className = 'break-words leading-relaxed';
+        textSpan.textContent = typeof item === 'object' ? (item.text || JSON.stringify(item)) : String(item);
+
+        const timeSpan = document.createElement('span');
+        timeSpan.dir = 'ltr';
+        timeSpan.className = 'font-mono text-[11px] text-zinc-500 shrink-0';
+        timeSpan.textContent = typeof item === 'object' ? formatTimestamp(item.createdAt) : '';
+
+        li.appendChild(textSpan);
+        li.appendChild(timeSpan);
+        list.appendChild(li);
+      });
+    }
+
+    window.onload = function () {
+      sphere = new LiquidSphereController();
+      sphere.start();
+
+      const lockForm = document.getElementById('glass-sphere-form');
+      const passwordInput = document.getElementById('glass-sphere-input');
+
+      lockForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const pwd = passwordInput.value;
+        if (!pwd) return;
+
+        lockForm.classList.remove('pill-shake');
+        sphere.setState('building');
+
+        try {
+          currentItems = await VaultDB.unlock(pwd);
+          passwordInput.value = '';
+          sphere.setState('success');
+
+          // Hold emerald success burst briefly before transitioning to unlocked workspace
+          setTimeout(() => {
+            sphere.setState('ready');
+            document.getElementById('vault-lock-screen').classList.add('hidden');
+            document.getElementById('unlocked-app-screen').classList.remove('hidden');
+            renderItems();
+            document.getElementById('status-msg').textContent = 'מסונכרן ומאובטח';
+          }, 820);
+        } catch {
+          sphere.setState('error');
+          void lockForm.offsetWidth; // trigger reflow for shake replay
+          lockForm.classList.add('pill-shake');
+          passwordInput.select();
+        }
+      });
+
+      document.getElementById('lock-btn').addEventListener('click', () => {
+        VaultDB.lock();
+        currentItems = [];
+        resetToDormantLock();
+      });
+
+      document.getElementById('entry-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const input = document.getElementById('entry-input');
+        const status = document.getElementById('status-msg');
+        const dot = document.getElementById('status-orb-dot');
+        const text = input.value.trim();
+        if (!text || !VaultDB.endpoint) return;
+
+        // Optimistic UI update
+        currentItems = [...currentItems, { id: Date.now(), text, createdAt: new Date().toISOString() }];
+        input.value = '';
+        renderItems();
+
+        status.textContent = 'מאחד שינויים ושומר...';
+        dot.className = 'w-3 h-3 rounded-full bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.8)] transition-colors duration-300';
+
+        try {
+          await VaultDB.save(currentItems);
+          status.textContent = 'נשמר בהצלחה ✓';
+          dot.className = 'w-3 h-3 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)] transition-colors duration-300';
+          setTimeout(() => {
+            dot.className = 'w-3 h-3 rounded-full bg-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.8)] transition-colors duration-500';
+          }, 1500);
+        } catch (err) {
+          status.textContent = 'שגיאה בשמירה: ' + err.message;
+          dot.className = 'w-3 h-3 rounded-full bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.8)] transition-colors duration-300';
+        }
+      });
+    };
+  </script>
+</body>
+</html>
